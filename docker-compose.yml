@@ -72,7 +72,7 @@ services:
 
   # Code nodes run here, isolated from the main n8n process.
   n8n-runners:
-    image: ghcr.io/n8n-io/runners:2.42.5
+    image: ghcr.io/n8n-io/runners:2.42.6
     restart: unless-stopped
     environment:
       N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
