@@ -14,7 +14,7 @@
 
 services:
   postgres:
-    image: mirror.gcr.io/library/postgres:17-alpine
+    image: mirror.gcr.io/library/postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: n8n
