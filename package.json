@@ -1,0 +1,18 @@
+{
+  "name": "w0rkfl0w5",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted n8n automations for employee onboarding and offboarding across Okta, Slack, and Jira.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "validate": "node scripts/validate-workflows.mjs",
+    "mocks": "node mocks/server.mjs",
+    "e2e": "node --test --test-reporter=spec scripts/e2e.mjs",
+    "up": "docker compose up -d --build --wait",
+    "down": "docker compose down -v"
+  }
+}
