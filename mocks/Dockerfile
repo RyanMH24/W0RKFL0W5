@@ -1,4 +1,4 @@
-FROM mirror.gcr.io/library/node:24-alpine
+FROM mirror.gcr.io/library/node:26-alpine
 WORKDIR /app
 COPY server.mjs .
 USER node
