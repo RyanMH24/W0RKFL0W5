@@ -1,0 +1,189 @@
+{
+  "id": "w0rkfl0w5ErrorHdl",
+  "name": "Error handler: failed run → Jira incident + Slack alert",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "685bb2c6-b4a7-439f-a59d-814e680dd8f3",
+      "name": "On Workflow Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/home/node/.n8n-files/w0rkfl0w5.json",
+        "options": {}
+      },
+      "id": "1501d47a-08ee-481c-a97a-eb2a1f87da77",
+      "name": "Read Config File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "08db369c-4b4e-49cd-af06-32bb7eeeec0d",
+      "name": "Parse Config",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execution = {}, workflow = {} } = $('On Workflow Error').first().json;\nconst { jira } = $('Parse Config').first().json.data;\nconst message = execution.error?.message ?? 'Unknown error';\nconst failedNode = execution.lastNodeExecuted ?? 'unknown node';\nreturn [{\n  json: {\n    summary: `[W0RKFL0W5] ${workflow.name} failed at \"${failedNode}\"`,\n    message,\n    failedNode,\n    executionUrl: execution.url ?? null,\n    fields: {\n      project: { key: jira.projectKey },\n      issuetype: { name: jira.issueType },\n      summary: `[W0RKFL0W5] ${workflow.name} failed at \"${failedNode}\"`,\n      labels: ['w0rkfl0w5', 'incident'],\n      description: [\n        'h3. Automation failure',\n        `*Workflow:* ${workflow.name} (${workflow.id})`,\n        `*Failed node:* ${failedNode}`,\n        `*Error:* {noformat}${message}{noformat}`,\n        `*Execution:* ${execution.url ?? execution.id ?? 'n/a'}`,\n        '',\n        'Check the execution in n8n, fix the cause, then replay the original request. Workflows are idempotent, so a replay is safe.',\n      ].join('\\n'),\n    },\n  },\n}];\n"
+      },
+      "id": "88c0de63-10f5-4219-a650-be76b8a8ffda",
+      "name": "Compose Incident",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.jira.baseUrl }}/rest/api/2/issue",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: $json.fields }) }}",
+        "options": {}
+      },
+      "id": "2f1df9b0-8aa1-4692-a769-e3745a0d4569",
+      "name": "Jira: Create Incident",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "w0rkfl0w5JiraApi",
+          "name": "Jira API token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.slack.apiUrl }}/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n      channel: $('Parse Config').first().json.data.slack.itAlertsChannel,\n      text: ':rotating_light: ' + $('Compose Incident').first().json.summary + '\\n>' + $('Compose Incident').first().json.message + '\\n' + ($json.key ? 'Incident: <' + $('Parse Config').first().json.data.jira.browseUrl + '/browse/' + $json.key + '|' + $json.key + '>' : 'Jira incident could not be created; see the n8n execution log.') + ($('Compose Incident').first().json.executionUrl ? ' | <' + $('Compose Incident').first().json.executionUrl + '|Execution>' : ''),\n      unfurl_links: false,\n    }) }}",
+        "options": {}
+      },
+      "id": "6e4e06bb-384e-4efc-acc1-35bcac21bd48",
+      "name": "Slack: Alert IT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5SlackBot",
+          "name": "Slack bot token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Read Config File": {
+      "main": [
+        [
+          {
+            "node": "Parse Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Read Config File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Config": {
+      "main": [
+        [
+          {
+            "node": "Compose Incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Incident": {
+      "main": [
+        [
+          {
+            "node": "Jira: Create Incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira: Create Incident": {
+      "main": [
+        [
+          {
+            "node": "Slack: Alert IT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

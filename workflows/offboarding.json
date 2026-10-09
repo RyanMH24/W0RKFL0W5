@@ -1,0 +1,816 @@
+{
+  "id": "w0rkfl0w5Offboard",
+  "name": "Offboarding: leaver → Okta lockout, Jira audit, Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "offboard",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6e0b390e-8945-42c5-a993-64dc235a9ce5",
+      "name": "Offboarding Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "11ac30ed-1fbc-42e4-ab47-e4c2d3fafd5f",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5Webhook",
+          "name": "W0RKFL0W5 webhook secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/home/node/.n8n-files/w0rkfl0w5.json",
+        "options": {}
+      },
+      "id": "18dd91fb-4c1a-45f6-a6e2-cc04e0ecae43",
+      "name": "Read Config File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "5e87c78f-16d0-4879-a3c0-084e46a49489",
+      "name": "Parse Config",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Offboarding Request').first().json.body ?? {};\nconst str = (key) => (typeof body[key] === 'string' ? body[key].trim() : '');\nconst errors = [];\nfor (const key of ['employeeId', 'workEmail', 'requestedBy']) {\n  if (!str(key)) errors.push(`${key} is required`);\n}\nconst email = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nfor (const key of ['workEmail', 'requestedBy']) {\n  if (str(key) && !email.test(str(key))) errors.push(`${key} must be an email address`);\n}\nif (str('employeeId') && !/^[A-Za-z0-9-]+$/.test(str('employeeId'))) {\n  errors.push('employeeId may only contain letters, digits, and dashes');\n}\nif (errors.length) return [{ json: { valid: false, errors } }];\nreturn [{\n  json: {\n    valid: true,\n    employeeId: str('employeeId'),\n    login: str('workEmail').toLowerCase(),\n    requestedBy: str('requestedBy').toLowerCase(),\n    reason: str('reason') || 'not specified',\n    ticketLabel: `w0rkfl0w5-offboard-${str('employeeId')}`,\n  },\n}];\n"
+      },
+      "id": "80ecaa18-4707-4f10-a16d-418649bc0573",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "708ff045-21e0-4be4-ab4c-a10022ce83f6",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1766c470-34bf-4aa6-a781-151b6e228a23",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'invalid_request', errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "f09370f6-222c-45b3-a838-c62cfe551f16",
+      "name": "Respond: Invalid Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/users/{{ encodeURIComponent($json.login) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "7d479da1-502f-4f3d-a337-79122abdc8cf",
+      "name": "Okta: Find User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const res = $input.first().json;\nif (res.statusCode === 404) return [{ json: { found: false } }];\nif (res.statusCode === 200) {\n  const { id, status, profile } = res.body;\n  return [{ json: { found: true, userId: id, status, name: `${profile.firstName} ${profile.lastName}` } }];\n}\nthrow new Error(`Okta user lookup failed: HTTP ${res.statusCode} ${JSON.stringify(res.body)}`);\n"
+      },
+      "id": "79395e1a-03a7-4b89-a021-1b0d607083c5",
+      "name": "Check Okta Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "69eba3c3-d028-452f-a06b-15e45777ef1a",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "260f58bf-e638-4c2d-ab59-0dfc13b1b649",
+      "name": "User Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'not_found', message: 'No Okta user with login ' + $('Validate Request').first().json.login }) }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "4373ddfa-a51d-4d25-aa53-a94d55f49b20",
+      "name": "Respond: Not Found",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1760,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e1ae715a-2c3e-4970-a67f-b16ff3c78f71",
+              "leftValue": "={{ $json.status === 'DEPROVISIONED' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a80de3d8-4602-4bb5-a02e-320069d5d733",
+      "name": "Already Deprovisioned?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'already_offboarded', okta: { userId: $json.userId, status: $json.status } }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "7e341619-cddf-44af-a6b2-64a60df83755",
+      "name": "Respond: Already Offboarded",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1980,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/users/{{ $json.userId }}/groups",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "fe50099e-adec-4726-a258-51214d34afcf",
+      "name": "Okta: List Groups",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.jira.baseUrl }}/rest/api/3/search/jql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "jql",
+              "value": "=labels = \"{{ $('Validate Request').first().json.ticketLabel }}\""
+            },
+            {
+              "name": "fields",
+              "value": "key"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "caab2f74-3621-475c-ab45-a3b0b38c3713",
+      "name": "Jira: Find Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "w0rkfl0w5JiraApi",
+          "name": "Jira API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ea0ddc6b-608d-402c-a66c-758458052c78",
+              "leftValue": "={{ $json.issues.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "23f9e5d9-42c0-4c3c-a840-31e2175d606b",
+      "name": "Ticket Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Snapshot access before anything destructive happens, so the audit trail\n// exists even if a later step fails.\nconst req = $('Validate Request').first().json;\nconst user = $('Check Okta Lookup').first().json;\nconst groups = ($('Okta: List Groups').first().json.body ?? []).map((g) => g.profile.name);\nconst { jira } = $('Parse Config').first().json.data;\nconst description = [\n  'h3. Leaver',\n  `*Name:* ${user.name}`,\n  `*Login:* ${req.login}`,\n  `*Employee ID:* ${req.employeeId}`,\n  `*Requested by:* ${req.requestedBy}`,\n  `*Reason:* ${req.reason}`,\n  '',\n  'h3. Access at time of offboarding',\n  `Okta status: ${user.status}`,\n  ...(groups.length ? groups.map((g) => `* ${g}`) : ['_No group memberships._']),\n  '',\n  'h3. Automated',\n  '(/) Okta sessions and OAuth tokens revoked',\n  '(/) Okta account deactivated (app access removed via provisioning)',\n  '',\n  'h3. Remaining checklist',\n  '* Collect laptop and badge',\n  '* Transfer Google Drive and calendar ownership to the manager',\n  '* Confirm downstream apps deprovisioned (SCIM)',\n  '',\n  `_Created by W0RKFL0W5, execution ${$execution.id}._`,\n].join('\\n');\nreturn [{\n  json: {\n    fields: {\n      project: { key: jira.projectKey },\n      issuetype: { name: jira.issueType },\n      summary: `Offboard ${user.name} (${req.login})`,\n      labels: ['w0rkfl0w5', 'offboarding', req.ticketLabel],\n      description,\n    },\n  },\n}];\n"
+      },
+      "id": "38f49737-9894-4651-aa84-ff5c08a2c060",
+      "name": "Compose Audit Ticket",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.jira.baseUrl }}/rest/api/2/issue",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "81e9b1c9-0fbb-4196-a9e3-9d008c4592e2",
+      "name": "Jira: Create Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        460
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "w0rkfl0w5JiraApi",
+          "name": "Jira API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/users/{{ $('Check Okta Lookup').first().json.userId }}/sessions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "oauthTokens",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6aab2882-d66d-4197-a8f4-f4d4538ad761",
+      "name": "Okta: Revoke Sessions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3080,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/users/{{ $('Check Okta Lookup').first().json.userId }}/lifecycle/deactivate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sendEmail",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "64ecb23a-d386-4c88-aa4c-212b775165b2",
+      "name": "Okta: Deactivate User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3300,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Validate Request').first().json;\nconst user = $('Check Okta Lookup').first().json;\nconst groups = ($('Okta: List Groups').first().json.body ?? []).map((g) => g.profile.name);\nconst key = $('Jira: Create Ticket').isExecuted\n  ? $('Jira: Create Ticket').first().json.key\n  : $('Jira: Find Ticket').first().json.issues[0].key;\nreturn [{ json: { req, user, groups, key } }];\n"
+      },
+      "id": "94f9e5fb-0dd9-4658-acab-e01c9f0c9e47",
+      "name": "Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.slack.apiUrl }}/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n      channel: $('Parse Config').first().json.data.slack.itAlertsChannel,\n      text: ':lock: Offboarded *' + $json.user.name + '* (' + $json.req.login + '): Okta deactivated, sessions revoked, ' + $json.groups.length + ' group memberships recorded. Requested by ' + $json.req.requestedBy + '. Audit ticket: <' + $('Parse Config').first().json.data.jira.browseUrl + '/browse/' + $json.key + '|' + $json.key + '>',\n      unfurl_links: false,\n    }) }}",
+        "options": {}
+      },
+      "id": "0cf4ba90-cb31-4587-a446-f126b46c8e25",
+      "name": "Slack: Alert IT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3740,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5SlackBot",
+          "name": "Slack bot token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { req, user, groups, key } = $('Summarize').first().json;\nconst { jira } = $('Parse Config').first().json.data;\nreturn [{\n  json: {\n    status: 'offboarded',\n    employeeId: req.employeeId,\n    okta: { userId: user.userId, status: 'DEPROVISIONED', sessionsRevoked: true, groupsAtOffboarding: groups },\n    jira: { key, url: `${jira.browseUrl}/browse/${key}` },\n    slack: { itAlerted: $input.first().json.ok === true },\n  },\n}];\n"
+      },
+      "id": "13d2ffe4-69a1-4a10-a5b4-bf9bbdaa0c80",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "7f8c0a2b-1977-4fca-a792-42626b2ad382",
+      "name": "Respond: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        4180,
+        340
+      ]
+    }
+  ],
+  "connections": {
+    "Read Config File": {
+      "main": [
+        [
+          {
+            "node": "Parse Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Offboarding Request": {
+      "main": [
+        [
+          {
+            "node": "Read Config File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Config": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Is Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          {
+            "node": "Okta: Find User",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Invalid Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Find User": {
+      "main": [
+        [
+          {
+            "node": "Check Okta Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Okta Lookup": {
+      "main": [
+        [
+          {
+            "node": "User Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "User Found?": {
+      "main": [
+        [
+          {
+            "node": "Already Deprovisioned?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Deprovisioned?": {
+      "main": [
+        [
+          {
+            "node": "Respond: Already Offboarded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Okta: List Groups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: List Groups": {
+      "main": [
+        [
+          {
+            "node": "Jira: Find Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira: Find Ticket": {
+      "main": [
+        [
+          {
+            "node": "Ticket Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket Exists?": {
+      "main": [
+        [
+          {
+            "node": "Okta: Revoke Sessions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Audit Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Audit Ticket": {
+      "main": [
+        [
+          {
+            "node": "Jira: Create Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira: Create Ticket": {
+      "main": [
+        [
+          {
+            "node": "Okta: Revoke Sessions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Revoke Sessions": {
+      "main": [
+        [
+          {
+            "node": "Okta: Deactivate User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Deactivate User": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Slack: Alert IT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Alert IT": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond: Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "w0rkfl0w5ErrorHdl"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
