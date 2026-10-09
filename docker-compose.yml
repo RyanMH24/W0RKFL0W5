@@ -6,10 +6,14 @@
 #
 # To use real Okta/Slack/Jira instead of the mocks, set the URLs and tokens
 # in .env and remove `mocks` from COMPOSE_PROFILES. See docs/real-accounts.md.
+#
+# Images come from GHCR (n8n's official copies) and AWS's mirror of the Docker
+# Official Images rather than Docker Hub, whose token service times out from
+# GitHub Actions runners. Same images, same digests.
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: public.ecr.aws/docker/library/postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: n8n
@@ -24,7 +28,7 @@ services:
       retries: 10
 
   n8n:
-    image: n8nio/n8n:2.42.5
+    image: ghcr.io/n8n-io/n8n:2.42.5
     restart: unless-stopped
     # Sync workflows + credentials from the repo, then start n8n.
     entrypoint: ["tini", "--", "node", "/opt/w0rkfl0w5/scripts/bootstrap.mjs"]
@@ -67,7 +71,7 @@ services:
 
   # Code nodes run here, isolated from the main n8n process.
   n8n-runners:
-    image: n8nio/runners:2.42.5
+    image: ghcr.io/n8n-io/runners:2.42.5
     restart: unless-stopped
     environment:
       N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
