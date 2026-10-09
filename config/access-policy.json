@@ -1,0 +1,24 @@
+{
+  "$comment": "Role-based access policy. Every hire gets `baseline`; each department adds its own groups. Group names must exist in Okta.",
+  "baseline": {
+    "oktaGroups": ["All Employees"],
+    "slackAnnounceChannel": "#it-onboarding"
+  },
+  "departments": {
+    "Engineering": {
+      "oktaGroups": ["Engineering", "GitHub Users", "VPN Users"]
+    },
+    "IT": {
+      "oktaGroups": ["IT Admins", "Jamf Admins", "VPN Users"]
+    },
+    "Sales": {
+      "oktaGroups": ["Sales", "Salesforce Users"]
+    },
+    "Finance": {
+      "oktaGroups": ["Finance", "NetSuite Users"]
+    },
+    "People": {
+      "oktaGroups": ["People Team", "Workday Users"]
+    }
+  }
+}
