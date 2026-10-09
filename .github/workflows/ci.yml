@@ -38,8 +38,16 @@ jobs:
           node-version: 24
       - name: Configure stack for mocks
         run: cp .env.example .env
+      - name: Pull and build images (retries transient registry errors)
+        run: |
+          for attempt in 1 2 3 4; do
+            docker compose pull --ignore-buildable && docker compose build && exit 0
+            echo "::warning::Image pull/build failed (attempt $attempt); retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          exit 1
       - name: Start stack
-        run: docker compose up -d --build --wait --wait-timeout 300
+        run: docker compose up -d --wait --wait-timeout 300
       - name: Run onboarding / offboarding / failure scenarios
         run: npm run e2e
       - name: Dump logs on failure
