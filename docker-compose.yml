@@ -24,7 +24,7 @@ services:
       retries: 10
 
   n8n:
-    image: docker.n8n.io/n8nio/n8n:2.42.5
+    image: n8nio/n8n:2.42.5
     restart: unless-stopped
     # Sync workflows + credentials from the repo, then start n8n.
     entrypoint: ["tini", "--", "node", "/opt/w0rkfl0w5/scripts/bootstrap.mjs"]
@@ -67,7 +67,7 @@ services:
 
   # Code nodes run here, isolated from the main n8n process.
   n8n-runners:
-    image: docker.n8n.io/n8nio/runners:2.42.5
+    image: n8nio/runners:2.42.5
     restart: unless-stopped
     environment:
       N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
