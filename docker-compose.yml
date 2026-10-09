@@ -7,13 +7,14 @@
 # To use real Okta/Slack/Jira instead of the mocks, set the URLs and tokens
 # in .env and remove `mocks` from COMPOSE_PROFILES. See docs/real-accounts.md.
 #
-# Images come from GHCR (n8n's official copies) and AWS's mirror of the Docker
-# Official Images rather than Docker Hub, whose token service times out from
-# GitHub Actions runners. Same images, same digests.
+# Images come from GHCR (n8n's official copies) and Google's Docker Hub mirror
+# rather than Docker Hub itself, whose token service times out from GitHub
+# Actions runners (and AWS's public mirror rate-limits them). Same images,
+# same digests.
 
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:17-alpine
+    image: mirror.gcr.io/library/postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: n8n
