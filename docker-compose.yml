@@ -29,7 +29,7 @@ services:
       retries: 10
 
   n8n:
-    image: ghcr.io/n8n-io/n8n:2.42.5
+    image: ghcr.io/n8n-io/n8n:2.42.6
     restart: unless-stopped
     # Sync workflows + credentials from the repo, then start n8n.
     entrypoint: ["tini", "--", "node", "/opt/w0rkfl0w5/scripts/bootstrap.mjs"]
