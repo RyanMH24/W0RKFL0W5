@@ -1,0 +1,920 @@
+{
+  "id": "w0rkfl0w5Onboard",
+  "name": "Onboarding: new hire → Okta, Jira, Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onboard",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7aa9ce03-8257-4c9f-aabe-36b959a3c24b",
+      "name": "Onboarding Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "4226df14-9353-47a7-aa90-7eebc23bcb5b",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5Webhook",
+          "name": "W0RKFL0W5 webhook secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/home/node/.n8n-files/w0rkfl0w5.json",
+        "options": {}
+      },
+      "id": "d94d4cd0-06d0-4c65-a241-7be78e425892",
+      "name": "Read Config File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "e20e8d12-769e-4b05-a35c-b91a36d89e50",
+      "name": "Parse Config",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validates the HR request and resolves the access plan from the policy.\nconst body = $('Onboarding Request').first().json.body ?? {};\nconst { policy } = $('Parse Config').first().json.data;\nconst str = (key) => (typeof body[key] === 'string' ? body[key].trim() : '');\nconst errors = [];\n\nfor (const key of ['employeeId', 'firstName', 'lastName', 'workEmail', 'department', 'title', 'managerEmail', 'startDate']) {\n  if (!str(key)) errors.push(`${key} is required`);\n}\nconst email = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nfor (const key of ['workEmail', 'managerEmail']) {\n  if (str(key) && !email.test(str(key))) errors.push(`${key} must be an email address`);\n}\nif (str('employeeId') && !/^[A-Za-z0-9-]+$/.test(str('employeeId'))) {\n  errors.push('employeeId may only contain letters, digits, and dashes');\n}\nif (str('startDate') && !/^\\d{4}-\\d{2}-\\d{2}$/.test(str('startDate'))) errors.push('startDate must be YYYY-MM-DD');\nconst department = policy.departments[str('department')];\nif (str('department') && !department) {\n  errors.push(`department must be one of: ${Object.keys(policy.departments).join(', ')}`);\n}\nif (errors.length) return [{ json: { valid: false, errors } }];\n\nreturn [{\n  json: {\n    valid: true,\n    employeeId: str('employeeId'),\n    firstName: str('firstName'),\n    lastName: str('lastName'),\n    login: str('workEmail').toLowerCase(),\n    department: str('department'),\n    title: str('title'),\n    managerEmail: str('managerEmail').toLowerCase(),\n    startDate: str('startDate'),\n    groups: [...new Set([...policy.baseline.oktaGroups, ...department.oktaGroups])],\n    ticketLabel: `w0rkfl0w5-onboard-${str('employeeId')}`,\n  },\n}];\n"
+      },
+      "id": "e26aa834-12c3-4103-ad08-80f6d8137e7f",
+      "name": "Validate & Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "708ff045-21e0-4be4-ab4c-a10022ce83f6",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4d9815a1-b9c2-4c64-a947-f36983529130",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'invalid_request', errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "e6e147ee-fe84-4d48-a88b-5c2c620e3172",
+      "name": "Respond: Invalid Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/users/{{ encodeURIComponent($json.login) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ecc9938e-4388-4a10-a25b-393cd7366dfa",
+      "name": "Okta: Find User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 404 means a new hire; anything other than 200/404 is a real failure.\nconst res = $input.first().json;\nif (res.statusCode === 404) return [{ json: { exists: false } }];\nif (res.statusCode === 200) return [{ json: { exists: true, userId: res.body.id, status: res.body.status } }];\nthrow new Error(`Okta user lookup failed: HTTP ${res.statusCode} ${JSON.stringify(res.body)}`);\n"
+      },
+      "id": "fe3ccc0c-93cc-4bf3-a51f-6635f7e4691a",
+      "name": "Check Okta Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0048e486-d475-4698-a69a-4d7b0b3b0756",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a0c64eeb-cf7a-4145-aa85-bf87976f9348",
+      "name": "Already In Okta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "activate",
+              "value": "false"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ profile: {\n      firstName: $('Validate & Plan').first().json.firstName,\n      lastName: $('Validate & Plan').first().json.lastName,\n      email: $('Validate & Plan').first().json.login,\n      login: $('Validate & Plan').first().json.login,\n      employeeNumber: $('Validate & Plan').first().json.employeeId,\n      department: $('Validate & Plan').first().json.department,\n      title: $('Validate & Plan').first().json.title,\n      manager: $('Validate & Plan').first().json.managerEmail,\n    } }) }}",
+        "options": {}
+      },
+      "id": "368d3b9e-36f7-472b-a571-bfd8e661e64b",
+      "name": "Okta: Create User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per group, whether the user was just created or already existed.\nconst created = $('Okta: Create User').isExecuted;\nconst userId = created ? $('Okta: Create User').first().json.id : $('Check Okta Lookup').first().json.userId;\nreturn $('Validate & Plan').first().json.groups.map((groupName) => ({ json: { groupName, userId, created } }));\n"
+      },
+      "id": "2651c7c4-6a9a-4291-a501-0d3b86b25d39",
+      "name": "Plan Group Assignments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/groups",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.groupName }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "a145b05b-775b-4a49-af16-bff2165873b2",
+      "name": "Okta: Find Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Okta's q= is a prefix search, so require an exact name match.\nconst plans = $('Plan Group Assignments').all();\nreturn $input.all().map((item, i) => {\n  const { groupName, userId } = plans[i].json;\n  const group = (item.json.body ?? []).find((g) => g.profile.name === groupName);\n  if (!group) {\n    throw new Error(`Okta group \"${groupName}\" not found. Create it in Okta or fix config/access-policy.json.`);\n  }\n  return { json: { groupId: group.id, groupName, userId } };\n});\n"
+      },
+      "id": "e26787a3-cb6f-408c-a94b-9bcb1ae26c17",
+      "name": "Resolve Group IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Parse Config').first().json.data.okta.baseUrl }}/api/v1/groups/{{ $json.groupId }}/users/{{ $json.userId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "5667df55-0fb3-4e4e-a683-d0411cb8dab3",
+      "name": "Okta: Add To Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5OktaApi",
+          "name": "Okta API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.jira.baseUrl }}/rest/api/3/search/jql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "jql",
+              "value": "=labels = \"{{ $('Validate & Plan').first().json.ticketLabel }}\""
+            },
+            {
+              "name": "fields",
+              "value": "key"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f9c90d72-1ecf-4c66-a4c1-0323ee31c69f",
+      "name": "Jira: Find Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "w0rkfl0w5JiraApi",
+          "name": "Jira API token"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ea0ddc6b-608d-402c-a66c-758458052c78",
+              "leftValue": "={{ $json.issues.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7bb62a03-7dfe-495c-a90e-ba22a0ad8a65",
+      "name": "Ticket Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3080,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('Validate & Plan').first().json;\nconst { jira } = $('Parse Config').first().json.data;\nconst created = $('Plan Group Assignments').first().json.created;\nconst description = [\n  'h3. New hire',\n  `*Name:* ${plan.firstName} ${plan.lastName}`,\n  `*Title / department:* ${plan.title}, ${plan.department}`,\n  `*Start date:* ${plan.startDate}`,\n  `*Manager:* ${plan.managerEmail}`,\n  `*Employee ID:* ${plan.employeeId}`,\n  '',\n  'h3. Automated',\n  created ? `(/) Okta account ${plan.login} created (STAGED until start date)` : `(/) Okta account ${plan.login} already existed; access re-applied`,\n  `(/) Okta groups: ${plan.groups.join(', ')}`,\n  '',\n  'h3. Remaining checklist',\n  '* Ship and enroll laptop (Jamf / Intune)',\n  '* Activate Okta account on the start date',\n  '* Manager confirms Day 1 access',\n  '',\n  `_Created by W0RKFL0W5, execution ${$execution.id}._`,\n].join('\\n');\nreturn [{\n  json: {\n    fields: {\n      project: { key: jira.projectKey },\n      issuetype: { name: jira.issueType },\n      summary: `Onboard ${plan.firstName} ${plan.lastName} (${plan.title}, ${plan.department}), starts ${plan.startDate}`,\n      labels: ['w0rkfl0w5', 'onboarding', plan.ticketLabel],\n      description,\n    },\n  },\n}];\n"
+      },
+      "id": "8d9abc59-7b76-46c0-a0db-945306ab00e3",
+      "name": "Compose Ticket",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.jira.baseUrl }}/rest/api/2/issue",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "5fbecd96-a192-48dd-a55c-42191b862752",
+      "name": "Jira: Create Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3520,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "w0rkfl0w5JiraApi",
+          "name": "Jira API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Config').first().json.data.slack.apiUrl }}/users.lookupByEmail",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $('Validate & Plan').first().json.managerEmail }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "32989828-7d8a-422a-ace4-ddaa85a04f68",
+      "name": "Slack: Find Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3740,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5SlackBot",
+          "name": "Slack bot token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.slack.apiUrl }}/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n      channel: $('Parse Config').first().json.data.slack.onboardingChannel,\n      text: ':wave: New hire: *' + $('Validate & Plan').first().json.firstName + ' ' + $('Validate & Plan').first().json.lastName + '* (' + $('Validate & Plan').first().json.title + ', ' + $('Validate & Plan').first().json.department + ') starts ' + $('Validate & Plan').first().json.startDate + '. Okta account staged with ' + $('Validate & Plan').first().json.groups.length + ' groups. Setup ticket: <' + $('Parse Config').first().json.data.jira.browseUrl + '/browse/' + $('Jira: Create Ticket').first().json.key + '|' + $('Jira: Create Ticket').first().json.key + '>',\n      unfurl_links: false,\n    }) }}",
+        "options": {}
+      },
+      "id": "60aad1b8-a298-45a1-a3fc-9563e9db90ec",
+      "name": "Slack: Announce",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3960,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5SlackBot",
+          "name": "Slack bot token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Slack reports failures as HTTP 200 with ok: false, so check explicitly.\nconst res = $input.first().json;\nif (!res.ok) throw new Error(`Slack announce failed: ${res.error}`);\nconst manager = $('Slack: Find Manager').first().json;\nreturn [{ json: { managerSlackId: manager.ok ? manager.user.id : null } }];\n"
+      },
+      "id": "1ac397cc-4c1a-4cb3-aee8-d7eeeab625f6",
+      "name": "Check Slack Announce",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4180,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "10077d51-c7ad-4cd8-a21c-00dfaa2b1c4e",
+              "leftValue": "={{ $json.managerSlackId !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d2d43475-7eab-48c6-af82-1f6f17fecc72",
+      "name": "Manager On Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Config').first().json.data.slack.apiUrl }}/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n      channel: $json.managerSlackId,\n      text: 'Hi! Your new hire *' + $('Validate & Plan').first().json.firstName + ' ' + $('Validate & Plan').first().json.lastName + '* starts ' + $('Validate & Plan').first().json.startDate + '. IT is tracking setup in ' + $('Jira: Create Ticket').first().json.key + '. Reply in #it-help if anything is missing on Day 1.',\n    }) }}",
+        "options": {}
+      },
+      "id": "2f3043be-9125-4132-a96d-e881fc27fb95",
+      "name": "Slack: DM Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4620,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "w0rkfl0w5SlackBot",
+          "name": "Slack bot token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('Validate & Plan').first().json;\nconst { jira } = $('Parse Config').first().json.data;\nconst user = $('Plan Group Assignments').first().json;\nconst newTicket = $('Jira: Create Ticket').isExecuted ? $('Jira: Create Ticket').first().json : null;\nconst key = newTicket ? newTicket.key : $('Jira: Find Ticket').first().json.issues[0].key;\nconst dm = $('Slack: DM Manager').isExecuted ? $('Slack: DM Manager').first().json : null;\nreturn [{\n  json: {\n    status: newTicket ? 'onboarded' : 'already_onboarded',\n    employeeId: plan.employeeId,\n    okta: { userId: user.userId, created: user.created, groups: plan.groups },\n    jira: { key, url: `${jira.browseUrl}/browse/${key}` },\n    slack: { announced: Boolean(newTicket), managerNotified: dm?.ok === true },\n  },\n}];\n"
+      },
+      "id": "3990f5b5-7a49-43f9-a227-b433d50b3751",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4840,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": "={{ $json.status === 'onboarded' ? 201 : 200 }}"
+        }
+      },
+      "id": "039b95c3-0a26-46a8-add4-5f9e31620e69",
+      "name": "Respond: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        5060,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Read Config File": {
+      "main": [
+        [
+          {
+            "node": "Parse Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Onboarding Request": {
+      "main": [
+        [
+          {
+            "node": "Read Config File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Config": {
+      "main": [
+        [
+          {
+            "node": "Validate & Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Plan": {
+      "main": [
+        [
+          {
+            "node": "Is Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          {
+            "node": "Okta: Find User",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Invalid Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Find User": {
+      "main": [
+        [
+          {
+            "node": "Check Okta Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Okta Lookup": {
+      "main": [
+        [
+          {
+            "node": "Already In Okta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already In Okta?": {
+      "main": [
+        [
+          {
+            "node": "Plan Group Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Okta: Create User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Create User": {
+      "main": [
+        [
+          {
+            "node": "Plan Group Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Group Assignments": {
+      "main": [
+        [
+          {
+            "node": "Okta: Find Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Find Group": {
+      "main": [
+        [
+          {
+            "node": "Resolve Group IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Group IDs": {
+      "main": [
+        [
+          {
+            "node": "Okta: Add To Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Okta: Add To Group": {
+      "main": [
+        [
+          {
+            "node": "Jira: Find Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira: Find Ticket": {
+      "main": [
+        [
+          {
+            "node": "Ticket Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket Exists?": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Ticket": {
+      "main": [
+        [
+          {
+            "node": "Jira: Create Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira: Create Ticket": {
+      "main": [
+        [
+          {
+            "node": "Slack: Find Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Find Manager": {
+      "main": [
+        [
+          {
+            "node": "Slack: Announce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Announce": {
+      "main": [
+        [
+          {
+            "node": "Check Slack Announce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slack Announce": {
+      "main": [
+        [
+          {
+            "node": "Manager On Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manager On Slack?": {
+      "main": [
+        [
+          {
+            "node": "Slack: DM Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: DM Manager": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond: Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "w0rkfl0w5ErrorHdl"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

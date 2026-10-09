@@ -14,13 +14,37 @@ concurrency:
 
 jobs:
   checks:
-    name: Unit tests
+    name: Workflow lint + unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Unit tests (mocks, access policy)
+      - name: Validate workflow JSON against platform standards
+        run: npm run validate
+      - name: Unit tests (mocks, access policy, validator)
         run: npm test
 
+  e2e:
+    name: End-to-end (n8n + Postgres + mocks)
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Configure stack for mocks
+        run: cp .env.example .env
+      - name: Start stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Run onboarding / offboarding / failure scenarios
+        run: npm run e2e
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
